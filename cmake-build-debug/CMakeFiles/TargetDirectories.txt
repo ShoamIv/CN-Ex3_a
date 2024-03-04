@@ -1,0 +1,4 @@
+/home/shoam/CLionProjects/ex3/cmake-build-debug/CMakeFiles/TCP_Receiver.dir
+/home/shoam/CLionProjects/ex3/cmake-build-debug/CMakeFiles/TCP_Sender.dir
+/home/shoam/CLionProjects/ex3/cmake-build-debug/CMakeFiles/edit_cache.dir
+/home/shoam/CLionProjects/ex3/cmake-build-debug/CMakeFiles/rebuild_cache.dir
