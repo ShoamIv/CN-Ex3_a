@@ -16,12 +16,8 @@
 #include <netinet/tcp.h>
 
 
-#define printf_time(f_, ...) printf("%s ", timestamp()), printf((f_), ##__VA_ARGS__);
 #define INVALID_SOCKET (-1)
 
-char *send_file = "send.txt";
-char *CC_reno = "reno";
-char *CC_cubic = "cubic";
 
 int socketSetup(struct sockaddr_in *serverAddress, int SERVER_PORT, char *algo) {
     int socketfd=INVALID_SOCKET;
@@ -66,12 +62,16 @@ int getDataFromSender(int Sendersocket,void * buffer, int len){
 }
 
 void print_ness(int run,double time,double kilo){
-    printf("Run=%d Time=%f Speed=%f\n", run, time,kilo);
+    printf("Run=%d Time=%.2f ms Speed=%.2f MB/s\n", run, time, kilo);
     printf("data transfer completed \n");
-
 }
 
 // Declare a variable of type Statics
+struct Statistics {
+    int run;
+    double time;
+    double kilo;
+};
 
 int main(int argc, char *argv[]) {
 
@@ -83,63 +83,74 @@ int main(int argc, char *argv[]) {
     // command line args
     int port = atoi(argv[2]);
     char *congestion_algorithm = argv[4];
-    int run_number=0;
+    int run_number = 0, num_stats = 0;
     // measuring time vars
-    double  total_time = 0,total_rec = 0;
-
+    double total_time = 0;
+    //init struct for statistics.
+    struct Statistics *stats = NULL;
     // file vars
     int fileSize,
-        Received=0;
-    char *buffer=NULL;
+            Received = 0;
+    char *buffer = NULL;
 
     // socket vars
-    int senderSocket=INVALID_SOCKET;
-    struct sockaddr_in server_address , clientAddr;
-    socklen_t clientAddrlen=sizeof(senderSocket);
-    char clientAddress [INET_ADDRSTRLEN];
+    int senderSocket = INVALID_SOCKET;
+    struct sockaddr_in server_address, clientAddr;
+    socklen_t clientAddrlen = sizeof(senderSocket);
+    char clientAddress[INET_ADDRSTRLEN];
 
 
     // establish connection with the sender,
-    int receiverSocket=socketSetup(&server_address, port, congestion_algorithm);
-    memset(&clientAddress,0, sizeof(clientAddress));
-    senderSocket= accept(receiverSocket,(struct sockaddr *) &clientAddr,&clientAddrlen);
-    if(senderSocket==-1){
+    int receiverSocket = socketSetup(&server_address, port, congestion_algorithm);
+    memset(&clientAddress, 0, sizeof(clientAddress));
+    senderSocket = accept(receiverSocket, (struct sockaddr *) &clientAddr, &clientAddrlen);
+    if (senderSocket == -1) {
         perror("accept");
         exit(1);
     }
 
     printf("sender connected, beginning to receive file");
-    inet_ntop(AF_INET,&(clientAddr.sin_addr),clientAddress,INET_ADDRSTRLEN);
+    inet_ntop(AF_INET, &(clientAddr.sin_addr), clientAddress, INET_ADDRSTRLEN);
 
 
     // get the file size and init the buffer size
-    getDataFromSender(senderSocket,&fileSize,sizeof (int));
-    buffer=malloc(fileSize * sizeof(char));
+    getDataFromSender(senderSocket, &fileSize, sizeof(int));
+    buffer = malloc(fileSize * sizeof(char));
 
-    while(true){
-        clock_t start,end;
-        int byteRec=0;
-        if (!Received){
-            memset(buffer,0,fileSize);
+    while (true) {
+        clock_t start, end;
+        int byteRec = 0;
+        if (!Received) {
+            memset(buffer, 0, fileSize);
         }
         // start clock
-       start=clock();
+        start = clock();
         // get data from sender
-        byteRec= getDataFromSender(senderSocket,buffer+Received,fileSize-Received);
-        Received+=byteRec;
+        byteRec = getDataFromSender(senderSocket, buffer + Received, fileSize - Received);
+        Received += byteRec;
 
-        if(byteRec==-1){
+        if (byteRec == -1) {
             break;
-        }
-        else if( Received==fileSize) {
+        } else if (Received == fileSize) {
             //close time
-            end=clock();
-            double time_per = ((double)(end - start) * 1000.0) / CLOCKS_PER_SEC;
-            total_time+=time_per;
+            end = clock();
+            double time_per = ((double) (end - start) * 1000.0) / CLOCKS_PER_SEC;
+            total_time += time_per;
 
+            // Increase the size of the stats array
+            stats = realloc(stats, (num_stats + 1) * sizeof(struct Statistics));
+            if (stats == NULL) {
+                perror("realloc");
+                exit(EXIT_FAILURE);
+            }
 
+            //update data at struct.
+            stats[num_stats].run = num_stats + 1;
+            stats[num_stats].time = time_per;
+            stats[num_stats].kilo = byteRec / time_per * 1000.0 / (1024.0 * 1024.0); // Convert bytes/ms to MB/s;
+
+            num_stats++;
             run_number++;
-            print_ness(run_number,time_per,byteRec/time_per);
 
             printf("waiting for sender\n");
 
@@ -148,24 +159,29 @@ int main(int argc, char *argv[]) {
             getDataFromSender(senderSocket, &exit, sizeof(char));
 
             // handle sender response
-            if(exit=='N'){
+            if (exit == 'N') {
                 printf("sender wants to exit\n");
                 break;
-            }
-            else if( exit=='Y'){
+            } else if (exit == 'Y') {
                 printf("sender wants to send another time \n");
-                Received=0;
-                start=0,end=0;
+                Received = 0;
+                start = 0, end = 0;
             }
         }
     }
+    printf("* Statistics *  \n ");
 
+    for (int i = 0; i < run_number; i++) {
+        print_ness(stats[i].run, stats[i].time, stats[i].kilo);
+    }
 
-    printf("Average time:%f\n",total_time/run_number);
-    printf("Average bandwidth: %.2f bytes/second\n", Received / total_time);
+    printf("Average time=%.2f ms\n", total_time / run_number);
+    if (total_time > 0){
+        //avoid /0.
+        printf("Average bandwidth=%.2f MB/s\n", (Received / total_time) * 1000.0 / (1024.0 * 1024.0));
+    }
 
-
-    //clsoe sockets, clean memory
+    //close sockets, clean memory
     close(senderSocket);
     close(receiverSocket);
     free(buffer);
